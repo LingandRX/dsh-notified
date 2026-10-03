@@ -1,13 +1,18 @@
-# dsh-notified — Windows conversation-completion notifications.
+# dsh-notified — conversation-completion notifications.
 #
 # Inserts one host-side plugin row. Its config is the settings form: edit the
 # values here, or use the plugin row in the sidebar's Plugins page, which is
 # generated from the same schema.
 #
-# The hook is `session/event` -> `turn/end`, so a toast is posted only after a
-# turn settles with an assistant reply. A user who is already looking at the app
-# is not interrupted (`suppressWhenFocused`), and turns that settle close
-# together are merged into one toast (`coalesceMs`).
+# The hook is `session/event` -> `turn/end`, so a notification is posted only
+# after a turn settles with an assistant reply. A user who is already looking at
+# the app is not interrupted (`suppressWhenFocused`), and turns that settle close
+# together are merged into one notification (`coalesceMs`).
+#
+# Windows delivers through a toast; macOS delivers through a compiled Swift
+# helper app that the plugin installs on first use. The settings below are shared
+# by both; `appId` and `registerAumid` apply to Windows only, because macOS keys
+# the user's notification permission to a fixed bundle identifier.
 - insert:
     - id: dsh-notified
       name: dsh-notified

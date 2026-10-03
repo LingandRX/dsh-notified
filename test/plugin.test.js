@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { apply, Config, DURATIONS, REASONS, name } from "../lib/index.js";
+import { apply, Config, DURATIONS, PLATFORMS, REASONS, explainFailure, name, resolveChannel } from "../lib/index.js";
 
 /**
  * Minimal recorder standing in for a Cordis context, plus a fake delivery
@@ -342,4 +342,163 @@ test("the test tool sends through the configured identity", async () => {
   assert.equal(calls[0].duration, "long");
   // The manual trigger always shows the toast, even while the app is focused.
   assert.equal(calls[0].suppressWhenFocused, false);
+});
+
+test("the plugin claims both desktop platforms", () => {
+  assert.deepEqual(PLATFORMS, ["win32", "darwin"]);
+});
+
+test("resolveChannel picks a real channel per platform", () => {
+  // The platform is injected rather than read from `process.platform`, so this
+  // asserts the selection logic on any machine the suite runs on.
+  const win = resolveChannel({ platform: "win32", overrides: {} });
+  assert.equal(win.ok, true);
+  assert.equal(win.injected, false);
+  assert.equal(win.noun, "toast");
+  assert.equal(typeof win.send, "function");
+
+  const mac = resolveChannel({ platform: "darwin", overrides: {} });
+  assert.equal(mac.ok, true);
+  assert.equal(mac.injected, false);
+  assert.equal(mac.noun, "notification");
+  assert.equal(typeof mac.send, "function");
+
+  const other = resolveChannel({ platform: "linux", overrides: {} });
+  assert.equal(other.ok, false);
+  assert.equal(other.reason, "unsupported-platform");
+});
+
+test("resolveChannel lets an injected sender win on every platform", () => {
+  const send = async () => ({ ok: true, code: 0 });
+  // The injection seam has to short-circuit the platform choice, otherwise the
+  // suite could only exercise the one platform it happens to run on.
+  for (const platform of ["win32", "darwin", "linux"]) {
+    const channel = resolveChannel({ platform, overrides: { showToast: send } });
+    assert.equal(channel.ok, true, platform);
+    assert.equal(channel.injected, true, platform);
+    assert.equal(channel.send, send, platform);
+  }
+});
+
+test("the injected channel reports the configured identity as registered", () => {
+  const channel = resolveChannel({ platform: "darwin", overrides: { showToast: async () => ({ ok: true }) } });
+  assert.deepEqual(channel.prepare(null, { registerAumid: true }), { registered: true });
+  assert.deepEqual(channel.prepare(null, { registerAumid: false }), { registered: false });
+});
+
+test("apply stays idle without a channel instead of throwing", () => {
+  // A host-side plugin must never break the conversation it observes, so an
+  // unsupported platform is a logged no-op rather than an error.
+  const info = [];
+  const ctx = {
+    logger: { info: (...a) => info.push(a.join(" ")), warn: () => {}, error: () => {} },
+    get: () => undefined,
+    effect: (fn) => fn(),
+    on: () => {},
+    inject: () => {},
+    tools: { register: () => () => {} },
+  };
+  const original = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { value: "linux", configurable: true });
+  try {
+    apply(ctx, new Config());
+  } finally {
+    Object.defineProperty(process, "platform", original);
+  }
+  assert.ok(info.some((line) => line.includes("no notification channel on linux")));
+});
+
+test("explainFailure turns a bare reason code into a remedy", () => {
+  // A reason alone leaves the operator with nothing to do; each platform's
+  // actionable failures must carry a hint.
+  const denied = explainFailure({ ok: false, reason: "denied" }, "darwin");
+  assert.ok(denied.includes("denied"));
+  assert.ok(denied.includes("System Settings"));
+
+  const noSwift = explainFailure({ ok: false, reason: "no-swiftc" }, "darwin");
+  assert.ok(noSwift.includes("Xcode"));
+
+  const noPowerShell = explainFailure({ ok: false, reason: "no-powershell" }, "win32");
+  assert.ok(noPowerShell.includes("PowerShell 5.1"));
+});
+
+test("explainFailure includes the exit code and stderr when present", () => {
+  const text = explainFailure({ ok: false, reason: "rejected", code: 5, stderr: "boom" }, "win32");
+  assert.ok(text.includes("rejected"));
+  assert.ok(text.includes("5"));
+  assert.ok(text.includes("boom"));
+});
+
+test("explainFailure still describes an unknown reason", () => {
+  // An unmapped reason must not render as "undefined": a future failure mode
+  // should degrade into a readable line.
+  const text = explainFailure({ ok: false, reason: "brand-new-failure" }, "linux");
+  assert.ok(text.includes("brand-new-failure"));
+  assert.ok(!text.includes("undefined"));
+});
+
+test("the test tool reports an injected delivery as a notification", async () => {
+  const ctx = {
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+    get: () => undefined,
+    effect: (fn) => fn(),
+    on: () => {},
+    inject: (deps, cb) => {
+      if (deps.includes("tools")) cb(ctx);
+    },
+    tools: { register: () => () => {} },
+  };
+  let tool;
+  ctx.tools.register = (definition) => {
+    tool = definition;
+    return () => {};
+  };
+  apply(ctx, new Config({ coalesceMs: 0 }), { showToast: async () => ({ ok: true, suppressed: false, code: 0 }) });
+  const result = await tool.execute({});
+  // The injected channel is platform-neutral, so it is described generically
+  // rather than as a Windows toast.
+  assert.equal(result.detail, "Notification delivered.");
+});
+
+test("the darwin channel prepares the helper through its injected seam", async () => {
+  const calls = [];
+  const info = [];
+  const ctx = { logger: { info: () => {}, warn: () => {}, error: () => {} } };
+  const channel = resolveChannel({ platform: "darwin", overrides: { ensureHelper: async (options) => {
+    calls.push(options);
+    return { ok: true, reason: "built" };
+  } } });
+  const state = channel.prepare(ctx, new Config({ iconPath: "/tmp/x.icns" }), (level, ...rest) => info.push([level, ...rest].join(" ")));
+  // macOS keys the user's notification permission to the bundle identifier, so
+  // the bundle id must not follow `appId`; nothing is "registered" the way an
+  // AUMID is on Windows.
+  assert.deepEqual(state, { registered: false });
+  await new Promise((resolve) => setImmediate(resolve));
+  // The install is deliberately not awaited: compiling must overlap whatever the
+  // user does next rather than delaying the first notification.
+  assert.deepEqual(calls, [{ iconPath: "/tmp/x.icns" }]);
+  assert.ok(info.some((line) => line.includes("helper installed")), info.join(" | "));
+});
+
+test("the darwin channel warns once when the helper cannot be prepared", async () => {
+  const warns = [];
+  const ctx = { logger: { info: () => {}, warn: (...a) => warns.push(a.join(" ")), error: () => {} } };
+  const channel = resolveChannel({ platform: "darwin", overrides: { ensureHelper: async () => ({ ok: false, reason: "no-swiftc", detail: "no compiler" }) } });
+  channel.prepare(ctx, new Config(), () => {});
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(warns.length, 1);
+  assert.ok(warns[0].includes("no-swiftc"));
+  assert.ok(warns[0].includes("no compiler"));
+});
+
+test("a rejected helper install still cannot break the turn path", async () => {
+  // `prepare` runs on the conversation path, so even a helper that throws must
+  // be contained; otherwise installing the plugin could break every turn.
+  const warns = [];
+  const ctx = { logger: { info: () => {}, warn: (...a) => warns.push(a.join(" ")), error: () => {} } };
+  const channel = resolveChannel({ platform: "darwin", overrides: { ensureHelper: async () => { throw new Error("kaboom"); } } });
+  assert.doesNotThrow(() => channel.prepare(ctx, new Config(), () => {}));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(warns.length, 1);
+  assert.ok(warns[0].includes("kaboom"));
 });

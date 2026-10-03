@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+
+# Logs and local diagnostics
+*.log
+logs/
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# Test / coverage output
+coverage/
+.nyc_output/
+*.lcov
+
+# Build and packaging output
+dist/
+build/
+out/
+.tmp/
+*.tgz
+
+# Local tooling state
+.cache/
+.eslintcache
+.stylelintcache
+*.tsbuildinfo
+
+# Editor and IDE
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local environment / secrets
+.env
+.env.*
+!.env.example

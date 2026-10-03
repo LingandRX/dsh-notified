@@ -1,0 +1,60 @@
+{
+  "name": "dsh-notified",
+  "version": "0.1.0",
+  "description": "Windows desktop toast notifications for DeepSeek Harness: fire a native, brand-labelled notification when a conversation turn finishes, and click it to bring the DSH window back to the front.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./toast": "./lib/toast.js",
+    "./text": "./lib/text.js",
+    "./policy": "./lib/policy.js",
+    "./package.json": "./package.json"
+  },
+  "icon": "./icon.png",
+  "files": [
+    "lib/index.js",
+    "lib/toast.js",
+    "lib/text.js",
+    "lib/policy.js",
+    "cordis.patch.yml",
+    "icon.png",
+    "README.md"
+  ],
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "notification",
+    "toast",
+    "windows",
+    "winrt",
+    "aumid",
+    "desktop"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    }
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

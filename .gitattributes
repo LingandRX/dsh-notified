@@ -1,0 +1,23 @@
+# Normalize line endings: LF in the repository, LF in the working tree.
+# The plugin is loaded by Node on Windows and shipped as plain ESM; a stray
+# CRLF in a .ps1 payload would change what WinRT receives, so text stays LF.
+* text=auto eol=lf
+
+*.js   text eol=lf
+*.json text eol=lf
+*.yml  text eol=lf
+*.md   text eol=lf
+
+*.ps1  text eol=lf
+
+# Binary assets must never be normalized.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+
+# Keep lockfiles out of diff noise and language stats.
+pnpm-lock.yaml -diff linguist-generated

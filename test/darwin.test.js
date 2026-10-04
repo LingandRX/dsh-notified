@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, rmSync, statSync } from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -12,6 +12,7 @@ import {
   HELPER_EXECUTABLE,
   MIN_SYSTEM_VERSION,
   SOCKET_NAME,
+  buildHelper,
   buildInfoPlist,
   buildRequest,
   buildSwiftArgs,
@@ -23,6 +24,7 @@ import {
   outcomeOf,
   parseReply,
   planHelperBuild,
+  prebuiltBinaryPath,
   resolution,
   resolveHarnessIconDarwin,
   resolveSwiftc,
@@ -431,4 +433,78 @@ test("showMacToast reports a missing compiler instead of installing anything", a
     body: "b",
   });
   assert.deepEqual(outcome, { ok: false, reason: "no-swiftc" });
+});
+
+test("prebuiltBinaryPath locates the shipped helper binary", () => {
+  const binary = prebuiltBinaryPath();
+  assert.ok(binary.endsWith(`/macos/bin/${HELPER_EXECUTABLE}`));
+  assert.equal(prebuiltBinaryPath({ prebuilt: "/custom/bin/helper" }), "/custom/bin/helper");
+});
+
+test("planHelperBuild rebuilds when the prebuilt binary is newer than the installed binary", () => {
+  assert.deepEqual(
+    planHelperBuild({ binaryExists: true, prebuiltMtimeMs: 3000, binaryMtimeMs: 1000 }),
+    { needed: true, reason: "stale" },
+  );
+});
+
+test("buildHelper installs prebuilt binary when swiftc is unavailable", () => {
+  const copied = [];
+  const ran = [];
+  const root = `/tmp/dsh-test-build-${Date.now()}`;
+  const target = {
+    app: `${root}/DSHNotify.app`,
+    binary: `${root}/DSHNotify.app/Contents/MacOS/dsh-notified`,
+    plist: `${root}/DSHNotify.app/Contents/Info.plist`,
+    icon: `${root}/DSHNotify.app/Contents/Resources/icon.icns`,
+    source: "/src/main.swift",
+    prebuilt: "/src/macos/bin/dsh-notified",
+    swiftc: undefined,
+    harnessIcon: undefined,
+  };
+  try {
+    const result = buildHelper({
+      target,
+      exists: (p) => p === target.prebuilt || p === target.binary,
+      runImpl: (cmd, args) => {
+        ran.push({ cmd, args });
+        return { status: 0 };
+      },
+      copyFileImpl: (src, dest) => {
+        copied.push({ src, dest });
+      },
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.reason, "built");
+    assert.deepEqual(copied, [{ src: target.prebuilt, dest: target.binary }]);
+    assert.ok(ran.some((r) => r.cmd.includes("codesign")));
+  } finally {
+    try {
+      rmSync(root, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+  }
+});
+
+test("showMacToast succeeds using prebuilt binary when swiftc is missing", async () => {
+  const sent = [];
+  const outcome = await showMacToast({
+    platform: "darwin",
+    root: "/Users/test/root",
+    source: "/src/main.swift",
+    prebuilt: "/src/macos/bin/dsh-notified",
+    swiftc: undefined,
+    exists: (p) => p === "/src/macos/bin/dsh-notified" || p.endsWith("dsh-notified"),
+    ensureImpl: async () => ({ ok: true, reason: "built" }),
+    waitImpl: async () => true,
+    sendImpl: async (req) => {
+      sent.push(req);
+      return { ok: true, code: 0 };
+    },
+    title: "Title",
+    body: "Body",
+  });
+  assert.deepEqual(outcome, { ok: true, code: 0 });
+  assert.equal(sent.length, 1);
 });

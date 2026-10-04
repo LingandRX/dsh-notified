@@ -17,7 +17,7 @@ DSH 窗口唤回前台。
 ## 常用命令
 
 ```bash
-npm test          # 唯一的脚本；147 项测试，约 80 毫秒
+npm test          # 唯一的脚本；151 项测试，约 80 毫秒
 pnpm test         # 等价；推荐使用 pnpm
 
 # 迭代时只跑单个文件
@@ -40,8 +40,9 @@ node --test --test-name-pattern="turn/end" test/plugin.test.js
 | `lib/policy.js` | **纯函数**：`shouldNotify`、`decideTurnEnd`、`foldTurnState`、`isSubagentSession`、`assistantTextOf` |
 | `lib/text.js` | **纯函数**：`stripMarkdown`、`composeBody`、`composeTitle`、`truncateChars`、`formatDuration`、`assistantText`、`basenameOf`、`composeMergedSummary` |
 | `lib/toast.js` | Windows 通道：AUMID 注册表写入、Base64 载荷、PowerShell 5.1 子进程、退出码映射 |
-| `lib/darwin.js` | macOS 通道：Bundle 构建决策、`swiftc` 调用、LaunchServices 启动、Unix Socket 协议 |
-| `macos/main.swift` | macOS Helper 源码（约 460 行），首次使用时编译为 `DSHNotify.app` |
+| `lib/darwin.js` | macOS 通道：Bundle 构建/安装决策、Universal Binary 支持、`swiftc` 增量构建、LaunchServices 启动、Unix Socket 协议 |
+| `macos/main.swift` | macOS Helper 源码（约 460 行），存在 `swiftc` 且有修改时编译为 `DSHNotify.app` |
+| `macos/bin/dsh-notified` | macOS 预编译 Universal Binary Helper（支持 Apple Silicon & Intel），免装 Xcode/CLT 开箱即用 |
 | `cordis.patch.yml` | Bundle Patch 模板：一条 `insert` 记录，内含默认配置 |
 | `test/*.test.js` | `node:test` + `node:assert/strict`，`lib/` 每个模块对应一个文件 |
 

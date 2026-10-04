@@ -18,6 +18,7 @@
 *.ico binary
 *.woff binary
 *.woff2 binary
+macos/bin/* binary
 
 # Keep lockfiles out of diff noise and language stats.
 pnpm-lock.yaml -diff linguist-generated

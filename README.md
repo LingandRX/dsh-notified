@@ -145,10 +145,10 @@ pnpm install
 
 | 依赖项 | 最低版本要求 | 说明 |
 |---|---|---|
-| **Xcode 命令行工具** | 任意有效版本 | 需要提供 `/usr/bin/swiftc` 编译 Helper。运行 `xcode-select --install` 即可；未安装时仅在日志打印 `warn`，不影响对话正常运行 |
-| **macOS 系统版本** | macOS 13.0+ | Helper 的编译目标与 `LSMinimumSystemVersion` 均设定为 13.0 |
+| **macOS 系统版本** | macOS 13.0+ | 内置预编译 Universal Binary（Apple Silicon 与 Intel 架构），免装 Xcode / Command Line Tools 即可开箱即用 |
+| **Xcode 命令行工具**（可选） | 任意有效版本 | 仅当开发者修改 `macos/main.swift` 源码时需要 `/usr/bin/swiftc` 触发增量编译；普通用户无需安装 |
 
-> 💡 **自动构建机制**：macOS Helper 会在**首次投递通知时自动编译并安装**到 `~/Library/Application Support/dsh-notified/DSHNotify.app`（耗时约 1.5 秒，且完全在后台异步进行，不阻塞任何对话）。无需管理员权限，签名采用 ad-hoc 本地自签名。
+> 💡 **免编译开箱即用**：macOS Helper 自带预编译 Universal Binary（`macos/bin/dsh-notified`），在首次使用时自动组装并安装到 `~/Library/Application Support/dsh-notified/DSHNotify.app`。无需安装 Xcode 或 Command Line Tools，亦无需管理员权限，签名采用 ad-hoc 本地自签名。
 
 ---
 
@@ -430,8 +430,8 @@ pnpm test
 
 - **自包含 Schema 依赖**：
   将 `@deepseek-ai/schemastery` 作为插件自身的直接依赖（`dependencies`），保证在 Profile 采用 `link:`（符号链接）方式安装时，ESM 寻址机制能正确解析依赖，不受 Host 外部目录隔离影响。
-- **动态 Native 编译**：
-  macOS Helper 采用系统自带的 `/usr/bin/swiftc` 在首次运行时本机编译，避免了预先分发二进制文件造成的架构适配（Intel / Apple Silicon）与签名难题。
+- **预编译分发与动态增量编译**：
+  macOS Helper 内置预编译好的 Universal Binary（支持 Apple Silicon 与 Intel 架构），普通用户零依赖开箱即用；同时保留源码检测机制，在开发者修改 `main.swift` 且存在 `/usr/bin/swiftc` 时自动触发增量编译。
 
 ---
 

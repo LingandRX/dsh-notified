@@ -85,12 +85,52 @@ test("apply validates its config defaults", () => {
 
 test("apply registers the manual test tool through the tools service", () => {
   const h = harness();
-  assert.deepEqual(h.injected, [["tools"]]);
+  // The plugin also watches for `webServer` so the SSE route is installed even
+  // when that sibling service is applied after this row.
+  assert.deepEqual(h.injected, [["webServer"], ["tools"]]);
   assert.equal(h.registered.length, 1);
   const tool = h.registered[0];
   assert.equal(tool.name, "dsh_notify_test");
   assert.equal(typeof tool.execute, "function");
   assert.equal(typeof tool.output.render, "function");
+});
+
+test("the SSE route is installed even when webServer arrives late", async () => {
+  // `ctx.get` only sees services that already exist. Wiring the route through a
+  // one-shot read (or through `ctx.on("service", …)`, an event Cordis never
+  // emits) left the route unregistered for the process lifetime, so browser
+  // notifications silently never worked. `ctx.inject` must be the fallback.
+  const { EVENT_ROUTE_PATH } = await import("../lib/web.js");
+
+  let deferred;
+  const ctx = {
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+    get: () => undefined, // webServer not available yet
+    effect: (fn) => fn(),
+    on: () => {},
+    inject: (deps, callback) => {
+      if (deps.includes("webServer")) deferred = callback;
+      if (deps.includes("tools")) callback(ctx);
+    },
+    tools: { register: () => () => {} },
+  };
+
+  apply(ctx, new Config({ coalesceMs: 0 }), { showToast: async () => ({ ok: true, code: 0 }) });
+  assert.equal(typeof deferred, "function", "the plugin must defer on webServer");
+
+  // The sibling plugin applies afterwards and provides the service.
+  const attached = [];
+  const fakeServer = {
+    register: (route) => {
+      attached.push(route);
+      return () => {};
+    },
+  };
+  deferred({ webServer: fakeServer });
+
+  assert.equal(attached.length, 1, "the SSE route must be registered once webServer appears");
+  assert.equal(attached[0].path, EVENT_ROUTE_PATH);
+  assert.equal(attached[0].kind, "exact");
 });
 
 test("the registered tool declares a schema the registry can validate", () => {

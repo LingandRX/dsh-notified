@@ -171,10 +171,10 @@ final class Notifier {
             // default in the shared config is a product name
             // ("DeepSeek Harness"), so accepting both keeps one setting working
             // on both platforms.
-            let wanted = Set(request.foregroundBundleIds ?? [])
+            let wanted = Set((request.foregroundBundleIds ?? []).map { $0.lowercased() })
             let front = NSWorkspace.shared.frontmostApplication
-            let frontId = front?.bundleIdentifier
-            let frontName = front?.localizedName
+            let frontId = front?.bundleIdentifier?.lowercased()
+            let frontName = front?.localizedName?.lowercased()
             let matches = (frontId.map { wanted.contains($0) } ?? false)
                 || (frontName.map { wanted.contains($0) } ?? false)
             if matches {
@@ -318,6 +318,10 @@ final class SocketClient {
                 return
             }
             self.buffer.append(chunk)
+            if self.buffer.count > 65536 {
+                self.close()
+                return
+            }
             while let newline = self.buffer.firstIndex(of: 0x0A) {
                 let line = self.buffer.subdata(in: self.buffer.startIndex..<newline)
                 self.buffer.removeSubrange(self.buffer.startIndex...newline)
@@ -394,7 +398,11 @@ final class SocketServer {
             let connection = SocketClient(
                 handle: handle,
                 onRequest: { [weak self] request, sender in self?.notifier.handle(request, from: sender) },
-                onClose: { [weak self] finished in self?.clients.removeValue(forKey: ObjectIdentifier(finished)) }
+                onClose: { [weak self] finished in
+                    self?.queue.async {
+                        self?.clients.removeValue(forKey: ObjectIdentifier(finished))
+                    }
+                }
             )
             self.clients[ObjectIdentifier(connection)] = connection
             connection.start()
@@ -460,4 +468,4 @@ FileHandle.standardError.write(encodeLine(Reply(
     pid: Int(ProcessInfo.processInfo.processIdentifier), front: nil
 )))
 
-RunLoop.main.run()
+NSApp.run()

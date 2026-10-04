@@ -33,6 +33,10 @@ test("escapeXmlText escapes the ampersand exactly once", () => {
   assert.equal(escapeXmlText("&amp;"), "&amp;amp;");
 });
 
+test("escapeXmlText strips XML 1.0 disallowed control characters", () => {
+  assert.equal(escapeXmlText("ok\x00\x07\x08\x0B\x0C\x1B\x7F\x84\x86\x9F\t\n\r!"), "ok\t\n\r!");
+});
+
 test("buildToastXml produces a protocol-activated toast", () => {
   const xml = buildToastXml({ title: "Title", body: "Body" });
   assert.ok(xml.includes('activationType="protocol"'));
@@ -126,6 +130,16 @@ test("resolveHarnessIcon probes the desktop install and returns a hit", () => {
 test("resolveHarnessIcon returns undefined when no candidate exists", () => {
   assert.equal(resolveHarnessIcon({ platform: "win32", env: { LOCALAPPDATA: "C:\\L" }, exists: () => false }), undefined);
   assert.equal(resolveHarnessIcon({ platform: "darwin", env: {}, exists: () => true }), undefined);
+});
+
+test("resolveHarnessIcon discovers icon beside custom install path", () => {
+  const icon = resolveHarnessIcon({
+    platform: "win32",
+    execPath: "D:\\Custom\\DeepSeek Harness\\DeepSeek Harness.exe",
+    env: {},
+    exists: (p) => p.startsWith("D:\\Custom"),
+  });
+  assert.equal(icon, "D:\\Custom\\DeepSeek Harness\\resources\\icon.png");
 });
 
 test("registerAumid writes the display name and icon under HKCU", () => {
@@ -267,12 +281,14 @@ test("showToast reports a spawn failure rather than rejecting", async () => {
     body: "b",
   });
   assert.equal(outcome.reason, "spawn-failed");
+  assert.ok(outcome.detail.includes("EPERM"));
 });
 
 test("showToast reports an asynchronous child error", async () => {
   const { spawnImpl } = spawnRecorder(fakeChild(0, { emitError: new Error("gone") }));
   const outcome = await showToast({ platform: "win32", powershell: "C:\\ps.exe", spawnImpl, title: "t", body: "b" });
   assert.equal(outcome.reason, "spawn-failed");
+  assert.ok(outcome.detail.includes("gone"));
 });
 
 test("showToast kills a child that never reports back", async () => {

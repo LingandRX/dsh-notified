@@ -121,6 +121,22 @@ test("an assistant reply followed by turn/end notifies once", async () => {
   assert.equal(request.suppressWhenFocused, true);
 });
 
+test("the payload carries the session id so a web click can reopen it", async () => {
+  const h = harness();
+  runTurn(h, session({ id: "session-abc" }));
+  await new Promise((r) => setImmediate(r));
+  assert.equal(h.delivered[0].sessionId, "session-abc");
+});
+
+test("a merged batch drops the session id rather than pointing at one reply", async () => {
+  const h = harness({ coalesceMs: 50 });
+  runTurn(h, session({ id: "s-a" }), { turn: 1 });
+  runTurn(h, session({ id: "s-b" }), { turn: 1, start: 5000, end: 6000 });
+  await new Promise((r) => setTimeout(r, 90));
+  assert.equal(h.delivered.length, 1);
+  assert.equal(h.delivered[0].sessionId, undefined);
+});
+
 test("the title falls back to the workspace directory name", async () => {
   const h = harness();
   runTurn(h, session({ cwd: "C:\\Users\\a\\Documents\\ChatGPT\\my-project" }));

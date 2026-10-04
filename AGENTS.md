@@ -42,7 +42,8 @@ node --test --test-name-pattern="turn/end" test/plugin.test.js
 | `lib/toast.js` | Windows 通道：AUMID 注册表写入、Base64 载荷、PowerShell 5.1 子进程、退出码映射 |
 | `lib/darwin.js` | macOS 通道：Bundle 构建/安装决策、Universal Binary 支持、`swiftc` 增量构建、LaunchServices 启动、Unix Socket 协议 |
 | `lib/web.js` | Web 通道：SSE 广播中心（`WebNotificationHub`）、连接池管理与心跳保活 |
-| `client.js` | 浏览器 Client 插件：DSH Web 端 Notification API 封装、焦点抑制与 EventSource 订阅 |
+| `client.js` | 浏览器 Client 插件（**classic script IIFE**，非 ESM）：Notification API 封装、焦点抑制、EventSource 订阅，以及点击通知后经 `uiWorkspace.openSession` 跳回会话 |
+| `scripts/verify-web.js` | 本地端到端验证服务：按 Harness 方式以 classic script 提供 `client.js`，浏览器内可见跳转日志 |
 | `macos/main.swift` | macOS Helper 源码（约 460 行），存在 `swiftc` 且有修改时编译为 `DSHNotify.app` |
 | `macos/bin/dsh-notified` | macOS 预编译 Universal Binary Helper（支持 Apple Silicon & Intel），免装 Xcode/CLT 开箱即用 |
 | `cordis.patch.yml` | Bundle Patch 模板：一条 `insert` 记录，内含默认配置 |
@@ -86,6 +87,19 @@ turn/end     ──► decideTurnEnd (policy.js)    本轮是否应通知？
    Bundle Identifier 强绑定，因此 Helper 的 ID 硬钉为 `com.deepseek.dsh-notified`
    （`DEFAULT_BUNDLE_ID`）。不要把它做成可配置 —— 那会在用户修改该字段的瞬间静默
    吊销既有授权。配置项的 description 写作 `Windows only:` 正是为此。
+7. **`client.js` 必须是 classic script，绝不能出现顶层 `export` / `import.meta`。**
+   DSH 的 bundle 通道 (`defaultLoadBundle`) 直接向 `document.head` 追加
+   `<script src=…>`（**没有** `type="module"`），bundle 只需调用
+   `window.__ModuleLoader__.load({ id, factory })`。顶层 `export` 会让浏览器抛出
+   `SyntaxError`，插件**静默不激活**且通知永久失效 —— 这正是本项目踩过的坑。
+   因此 `client.js` 整体包在 IIFE 中，且 `test/client.test.js` 用 `node:vm` 以 classic
+   script 方式求值**真实字节**（而不是 `import` 一份 ESM 副本），从而让这个解析错误在
+   单测中立刻暴露。Cordis 只读 `name` / `inject` / `apply`。
+8. **Host 载荷必须携带 `sessionId`。** Web 端点击通知依赖它调用
+   `uiWorkspace.openSession(id)` 跳回对应会话；合并批次（`coalesceMs`）跨会话时必须把
+   `sessionId` 清空，否则会错误地指向其中一轮。`client.js` 通过 `ctx.get()` **在点击时**
+   惰性解析 `uiWorkspace` / `sessions`，故 `inject` 保持为空数组 —— 不要为了拿服务而
+   在 `inject` 里声明它们，那会让插件在无 Workspace UI 的页面上被 CORDIS 永久挂起。
 
 ## 测试
 
@@ -93,6 +107,11 @@ turn/end     ──► decideTurnEnd (policy.js)    本轮是否应通知？
 - 覆盖率来自**依赖注入**，而非模块打桩。断言针对纯函数的返回数据。
 - 文件系统触点必须通过注入的探针来验证。`mtimeOf` 与 `resolution` 有刻意读取真实磁盘的
   测试 —— 否则"源码比二进制新"这条分支根本无法触达。
+- `test/client.test.js` 不 `import` `client.js`，而是在 `node:vm` 中求值真实文件：契约 7
+  要求如此（ESM 读取会掩盖浏览器必然命中的解析错误）。跨 realm 的返回值用字段断言，
+  不要用 `assert.deepEqual`（原型不同会误报）。
+- 端到端验证可用 `node scripts/verify-web.js`（起本地服务，浏览器打开后点通知，页面日志
+  会记录跳转到的 sessionId）。
 - 新增行为时，测试放进对应的文件：判定逻辑 → `policy.test.js`，排版 → `text.test.js`，
   单平台通道 → `toast.test.js` / `darwin.test.js`，端到端串接（经注入的 `showToast`）
   → `plugin.test.js`。

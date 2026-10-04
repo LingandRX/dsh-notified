@@ -502,3 +502,134 @@ test("a rejected helper install still cannot break the turn path", async () => {
   assert.equal(warns.length, 1);
   assert.ok(warns[0].includes("kaboom"));
 });
+
+test("turn settlement broadcasts to active web clients when webHub has clients", async () => {
+  const webBroadcasts = [];
+  const fakeWebHub = {
+    hasClients: true,
+    clientCount: 1,
+    broadcast: async (payload) => {
+      webBroadcasts.push(payload);
+      return { ok: true, code: 0, detail: "broadcast" };
+    },
+    attach: () => () => {},
+    dispose: () => {},
+  };
+
+  const delivered = [];
+  const listeners = new Map();
+  const ctx = {
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+    get: () => undefined,
+    effect: (fn) => fn(),
+    on: (event, handler) => listeners.set(event, handler),
+    inject: () => {},
+    tools: { register: () => () => {} },
+  };
+
+  apply(ctx, new Config({ coalesceMs: 0 }), {
+    showToast: async (p) => {
+      delivered.push(p);
+      return { ok: true, code: 0 };
+    },
+    webHub: fakeWebHub,
+  });
+
+  const s = session();
+  listeners.get("session/event")(s, { type: "turn/start", time: 1000, data: { turn: 1 } });
+  listeners.get("session/event")(s, { type: "assistant/message", time: 1001, data: { message: { content: [{ type: "text", text: "Done on web!" }] } } });
+  listeners.get("session/event")(s, { type: "turn/end", time: 2000, data: { turn: 1, reason: { kind: "completed" } } });
+
+  await new Promise((r) => setImmediate(r));
+  assert.equal(delivered.length, 1);
+  assert.equal(webBroadcasts.length, 1);
+  assert.ok(webBroadcasts[0].body.includes("Done on web!"));
+});
+
+test("the test tool broadcasts to active web clients", async () => {
+  const webBroadcasts = [];
+  const fakeWebHub = {
+    hasClients: true,
+    clientCount: 1,
+    broadcast: async (p) => {
+      webBroadcasts.push(p);
+      return { ok: true, code: 0 };
+    },
+    attach: () => () => {},
+    dispose: () => {},
+  };
+
+  let tool;
+  const ctx = {
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+    get: () => undefined,
+    effect: (fn) => fn(),
+    on: () => {},
+    inject: (deps, cb) => {
+      if (deps.includes("tools")) cb(ctx);
+    },
+    tools: {
+      register: (def) => {
+        tool = def;
+        return () => {};
+      },
+    },
+  };
+
+  apply(ctx, new Config(), {
+    showToast: async () => ({ ok: true, code: 0 }),
+    webHub: fakeWebHub,
+  });
+
+  assert.ok(tool);
+  const result = await tool.execute({ title: "Web Test", body: "Hello Web" });
+  assert.equal(result.delivered, true);
+  assert.equal(webBroadcasts.length, 1);
+  assert.equal(webBroadcasts[0].title, "Web Test");
+  assert.equal(webBroadcasts[0].body, "Hello Web");
+});
+
+test("apply mounts web channel on linux when webServer is available", async () => {
+  const original = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { value: "linux", configurable: true });
+
+  const webBroadcasts = [];
+  const fakeWebHub = {
+    hasClients: true,
+    clientCount: 1,
+    broadcast: async (p) => {
+      webBroadcasts.push(p);
+      return { ok: true, code: 0 };
+    },
+    attach: () => () => {},
+    dispose: () => {},
+  };
+
+  let registeredTool;
+  const listeners = new Map();
+  const ctx = {
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+    get: (key) => (key === "webServer" ? {} : undefined),
+    effect: (fn) => fn(),
+    on: (event, handler) => listeners.set(event, handler),
+    inject: (deps, cb) => {
+      if (deps.includes("tools")) cb(ctx);
+    },
+    tools: {
+      register: (def) => {
+        registeredTool = def;
+        return () => {};
+      },
+    },
+  };
+
+  try {
+    apply(ctx, new Config({ coalesceMs: 0 }), { webHub: fakeWebHub });
+    assert.ok(registeredTool, "Tool should be registered because web channel resolved");
+    const toolResult = await registeredTool.execute({ title: "Linux Web", body: "OK" });
+    assert.equal(toolResult.delivered, true);
+    assert.equal(webBroadcasts.length, 1);
+  } finally {
+    Object.defineProperty(process, "platform", original);
+  }
+});

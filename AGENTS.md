@@ -17,7 +17,7 @@ DSH 窗口唤回前台。
 ## 常用命令
 
 ```bash
-npm test          # 唯一的脚本；151 项测试，约 80 毫秒
+npm test          # 唯一的脚本；174 项测试，约 100 毫秒
 pnpm test         # 等价；推荐使用 pnpm
 
 # 迭代时只跑单个文件
@@ -41,10 +41,12 @@ node --test --test-name-pattern="turn/end" test/plugin.test.js
 | `lib/text.js` | **纯函数**：`stripMarkdown`、`composeBody`、`composeTitle`、`truncateChars`、`formatDuration`、`assistantText`、`basenameOf`、`composeMergedSummary` |
 | `lib/toast.js` | Windows 通道：AUMID 注册表写入、Base64 载荷、PowerShell 5.1 子进程、退出码映射 |
 | `lib/darwin.js` | macOS 通道：Bundle 构建/安装决策、Universal Binary 支持、`swiftc` 增量构建、LaunchServices 启动、Unix Socket 协议 |
+| `lib/web.js` | Web 通道：SSE 广播中心（`WebNotificationHub`）、连接池管理与心跳保活 |
+| `client.js` | 浏览器 Client 插件：DSH Web 端 Notification API 封装、焦点抑制与 EventSource 订阅 |
 | `macos/main.swift` | macOS Helper 源码（约 460 行），存在 `swiftc` 且有修改时编译为 `DSHNotify.app` |
 | `macos/bin/dsh-notified` | macOS 预编译 Universal Binary Helper（支持 Apple Silicon & Intel），免装 Xcode/CLT 开箱即用 |
 | `cordis.patch.yml` | Bundle Patch 模板：一条 `insert` 记录，内含默认配置 |
-| `test/*.test.js` | `node:test` + `node:assert/strict`，`lib/` 每个模块对应一个文件 |
+| `test/*.test.js` | `node:test` + `node:assert/strict`，`lib/` 每个模块及 `client.js` 对应一个文件 |
 
 ### 数据流
 
@@ -54,6 +56,10 @@ turn/end     ──► decideTurnEnd (policy.js)    本轮是否应通知？
              ──► composeTitle/composeBody (text.js)
              ──► enqueue()  合并窗口（coalesceMs）
              ──► resolveChannel().send  ──► toast.js (Windows) | darwin.js (macOS)
+                                        └──► web.js (Web 广播，当有活跃客户端或在 Web 宿主)
+                                                    │ (SSE)
+                                                    ▼
+                                              client.js (浏览器 Web Notification)
 ```
 
 ## 不可破坏的契约

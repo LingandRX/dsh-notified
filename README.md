@@ -6,9 +6,9 @@
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![DSH Compatibility](https://img.shields.io/badge/DeepSeek%20Harness-v0.1.7%2B-blueviolet.svg)](https://github.com/deepseek-ai/deepseek-harness)
 
-桌面通知插件，专为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) 打造。全面支持 **Windows** 与 **macOS** 双平台。
+桌面与浏览器通知插件，专为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) 打造。全面支持 **Windows**、**macOS** 与 **Web 浏览器**。
 
-在一轮对话结束时，自动发送**系统原生桌面通知**：通知标题为当前会话名称、正文为回答摘要与轮次耗时、图标为 DeepSeek Harness 官方图标。点击通知弹窗即可将 DSH 窗口激活并置于前台。
+在一轮对话结束时，自动发送**系统原生桌面通知**：通知标题为当前会话名称、正文为回答摘要与轮次耗时、图标为 DeepSeek Harness 官方图标。点击通知弹窗即可将 DSH 窗口或浏览器标签页激活并置于前台。
 
 > 💡 切换到其他窗口处理其他事务，无需长时间紧盯屏幕等待 Agent 响应。
 
@@ -16,6 +16,7 @@
 |---|---|---|---|
 | **Windows** | PowerShell 5.1 → WinRT Toast | 注册 AUMID 后署名为 "DeepSeek Harness" | ✅ |
 | **macOS** | 插件内置 Swift Helper（UserNotifications 框架） | 原生 App 署名 "DeepSeek Harness" | ✅ |
+| **Web 浏览器** | Server-Sent Events (SSE) → HTML5 Web Notification | 浏览器原生通知，支持 Chrome / Edge / Safari / Firefox | ✅ 唤回激活标签页 |
 
 ---
 

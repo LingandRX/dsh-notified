@@ -1,13 +1,15 @@
 {
   "name": "dsh-notified",
   "version": "0.1.0",
-  "description": "Desktop notifications for DeepSeek Harness: fire a native, brand-labelled notification when a conversation turn finishes, and click it to bring the DSH window back to the front. Windows toast and macOS banner.",
+  "description": "Notifications for DeepSeek Harness: fire a native or web notification when a conversation turn finishes, and click it to bring DSH back to the front. Windows toast, macOS banner, and Web notification.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
     ".": {
       "default": "./lib/index.js"
     },
+    "./client": "./client.js",
+    "./web": "./lib/web.js",
     "./toast": "./lib/toast.js",
     "./darwin": "./lib/darwin.js",
     "./text": "./lib/text.js",
@@ -17,10 +19,12 @@
   "icon": "./icon.png",
   "files": [
     "lib/index.js",
+    "lib/web.js",
     "lib/toast.js",
     "lib/darwin.js",
     "lib/text.js",
     "lib/policy.js",
+    "client.js",
     "macos/main.swift",
     "macos/bin/dsh-notified",
     "cordis.patch.yml",
@@ -39,7 +43,9 @@
     "macos",
     "darwin",
     "usernotifications",
-    "desktop"
+    "desktop",
+    "web",
+    "browser"
   ],
   "license": "MIT",
   "engines": {
@@ -62,6 +68,10 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
     }
   }
 }

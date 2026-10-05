@@ -180,6 +180,7 @@ pnpm install
 | `includeSubagents` | `boolean` | `false` | 全部 | 是否允许子代理（Subagent）会话触发通知 |
 | `bodyMaxChars` | `number` | `140` | 全部 | 正文最大字符数。耗时尾串预留在此预算空间内 |
 | `showDuration` | `boolean` | `true` | 全部 | 是否在通知末尾附加本轮耗时信息 |
+| `webNotification` | `string` | `auto` | 全部 | 浏览器通知策略：`auto`（只发一条：有人在浏览器中查看时优先浏览器，否则走原生）/ `always`（原生与浏览器都发）/ `off`（从不发浏览器通知） |
 | `launch` | `string` | `dsh://open` | 全部 | 点击通知弹窗时系统打开的深层链接 URI |
 | `duration` | `string` | `short` | 全部 | 停留时长：`short` / `long`（macOS 上 `long` 映射为时效性通知 Time-Sensitive） |
 | `sound` | `boolean` | `false` | 全部 | 是否播放系统提示音 |
@@ -193,6 +194,7 @@ pnpm install
 > 📌 **跨平台配置细节**：
 > 1. **macOS 忽略 `appId` 与 `registerAumid`**：macOS 系统的通知权限与应用程序的 Bundle Identifier 强绑定。若允许自定义 Bundle ID，用户修改配置会导致已获得的系统通知权限失效，因此 macOS Helper 的 Bundle ID 严格固定为 `com.deepseek.dsh-notified`。
 > 2. **前台智能识别**：macOS 上的 `foregroundProcessNames` 同时匹配**应用名称**与 **Bundle Identifier**，且内置将 `com.deepseek.dsh` 判定为 DSH 前台。因此默认值 `["DeepSeek Harness"]` 在 Windows 和 macOS 上均可直接开箱即用。
+> 3. **默认每条通知只走一个通道**：`dsh web` 跑在有原生通道的机器上时，若原生与浏览器各发一条，同一个人会看到**两条一模一样的横幅**。因此 `webNotification: auto` 下只发一条 —— 有人在浏览器中查看时优先浏览器（它的点击能跳回**具体会话**，原生横幅做不到），否则走原生；DSH Desktop 自带 Web 服务，其渲染窗口也连着 SSE，故由 `process.versions.electron` 识别并继续使用原生横幅，避免在自己窗口里重复。需要两个真实受众（如共享服务器 + 自己的桌面）时设为 `always`。
 
 ---
 

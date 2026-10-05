@@ -17,7 +17,7 @@ DSH 窗口唤回前台。
 ## 常用命令
 
 ```bash
-npm test          # 唯一的脚本；174 项测试，约 100 毫秒
+npm test          # 唯一的脚本；206 项测试，约 120 毫秒
 pnpm test         # 等价；推荐使用 pnpm
 
 # 迭代时只跑单个文件
@@ -56,11 +56,9 @@ session/event ──► foldTurnState (policy.js)   按会话追踪轮次状态
 turn/end     ──► decideTurnEnd (policy.js)    本轮是否应通知？
              ──► composeTitle/composeBody (text.js)
              ──► enqueue()  合并窗口（coalesceMs）
-             ──► resolveChannel().send  ──► toast.js (Windows) | darwin.js (macOS)
-                                        └──► web.js (Web 广播，当有活跃客户端或在 Web 宿主)
-                                                    │ (SSE)
-                                                    ▼
-                                              client.js (浏览器 Web Notification)
+             ──► planDelivery (policy.js)     本条通知走哪个通道？（默认只走一个）
+                   ├── native ──► resolveChannel().send ──► toast.js (Windows) | darwin.js (macOS)
+                   └── web    ──► web.js (SSE 广播)  ──► client.js (浏览器 Web Notification)
 ```
 
 ## 不可破坏的契约
@@ -100,6 +98,18 @@ turn/end     ──► decideTurnEnd (policy.js)    本轮是否应通知？
    `sessionId` 清空，否则会错误地指向其中一轮。`client.js` 通过 `ctx.get()` **在点击时**
    惰性解析 `uiWorkspace` / `sessions`，故 `inject` 保持为空数组 —— 不要为了拿服务而
    在 `inject` 里声明它们，那会让插件在无 Workspace UI 的页面上被 CORDIS 永久挂起。
+9. **默认每条通知只走一个通道（`webNotification: "auto"`）。** 之前的实现无条件
+   「发原生 + 广播浏览器」，当 `dsh web` 跑在有原生通道的机器上时，同一个人会收到
+   **两条一模一样的横幅**。通道选择收敛到纯函数 `planDelivery`（`lib/policy.js`）：
+   - `auto`：有人在**非桌面壳**的浏览器里查看时只发浏览器（其点击能跳回具体会话，
+     原生横幅做不到），否则只发原生；
+   - `always`：两个真实受众（如共享服务器 + 运维自己的桌面）才两条都发；
+   - `off`：从不发浏览器通知。
+   判定「桌面壳」必须用 `isDesktopShell()`（即 `process.versions.electron`）：DSH
+   Desktop **自带 `dsh-web-app`**，它的渲染进程同样是 SSE 客户端，因此
+   「存在 `webServer`」不能区分「真人开着浏览器」与「桌面壳自己的窗口」—— 只有
+   Electron 标记能。原生投递失败且浏览器在线时仍回退到浏览器，避免拒权/Helper
+   起不来时通知被静默吞掉。
 
 ## 测试
 

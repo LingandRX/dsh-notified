@@ -28,6 +28,7 @@
         includeSubagents: false
         bodyMaxChars: 140
         showDuration: true
+        webNotification: auto
         appId: DeepSeek.Harness.Notified
         registerAumid: true
         iconPath: ""

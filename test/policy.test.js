@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { isSubagentSession, shouldNotify } from "../lib/policy.js";
+import { isSubagentSession, planDelivery, shouldNotify } from "../lib/policy.js";
 
 /** The permissive baseline every case narrows from. */
 const base = {
@@ -89,4 +89,73 @@ test("isSubagentSession tolerates a missing or malformed header", () => {
   assert.equal(isSubagentSession(undefined), false);
   assert.equal(isSubagentSession(null), false);
   assert.equal(isSubagentSession("header"), false);
+});
+
+/** The channel facts every planDelivery case narrows from. */
+const channels = {
+  nativeOk: true,
+  webConnected: true,
+  webAvailable: true,
+  desktopShell: false,
+  webNotification: "auto",
+};
+
+test("planDelivery auto prefers the browser when one is watching outside the shell", () => {
+  // Only a browser notification can reopen the exact Session that settled, so
+  // it is the better single channel whenever somebody has a page open.
+  const plan = planDelivery(channels);
+  assert.equal(plan.native, false);
+  assert.equal(plan.web, true);
+});
+
+test("planDelivery auto keeps the desktop shell on its native banner", () => {
+  // The desktop app bundles its own web server, so its renderer is an SSE
+  // client too; broadcasting there would duplicate the banner in-window.
+  const plan = planDelivery({ ...channels, desktopShell: true });
+  assert.equal(plan.native, true);
+  assert.equal(plan.web, false);
+  assert.equal(plan.webReason, "native-channel-available");
+});
+
+test("planDelivery auto uses the native channel when no browser is connected", () => {
+  const plan = planDelivery({ ...channels, webConnected: false });
+  assert.equal(plan.native, true);
+  assert.equal(plan.web, false);
+  assert.equal(plan.webReason, "native-channel-available");
+});
+
+test("planDelivery auto falls back to the browser without a native channel", () => {
+  // A headless host has no native channel, so the browser is the only way.
+  const plan = planDelivery({ ...channels, nativeOk: false });
+  assert.equal(plan.native, false);
+  assert.equal(plan.web, true);
+});
+
+test("planDelivery always sends to both audiences", () => {
+  const plan = planDelivery({ ...channels, desktopShell: true, webNotification: "always" });
+  assert.equal(plan.native, true);
+  assert.equal(plan.web, true);
+});
+
+test("planDelivery always still skips a browser nobody opened", () => {
+  const plan = planDelivery({ ...channels, webConnected: false, webNotification: "always" });
+  assert.equal(plan.native, true);
+  assert.equal(plan.web, false);
+  assert.equal(plan.webReason, "no-web-clients");
+});
+
+test("planDelivery off keeps the browser silent", () => {
+  const plan = planDelivery({ ...channels, nativeOk: false, webNotification: "off" });
+  assert.equal(plan.web, false);
+  assert.equal(plan.webReason, "web-disabled");
+});
+
+test("planDelivery reports no-channel when nothing can deliver", () => {
+  const plan = planDelivery({ ...channels, nativeOk: false, webConnected: false });
+  assert.equal(plan.native, false);
+  assert.equal(plan.web, false);
+  assert.equal(plan.webReason, "no-web-clients");
+
+  const idle = planDelivery({ ...channels, nativeOk: false, webConnected: false, webAvailable: false });
+  assert.equal(idle.webReason, "no-channel");
 });

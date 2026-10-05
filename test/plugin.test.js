@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { apply, Config, DURATIONS, PLATFORMS, REASONS, explainFailure, name, resolveChannel } from "../lib/index.js";
+import { apply, Config, DURATIONS, isDesktopShell, PLATFORMS, REASONS, explainFailure, name, resolveChannel } from "../lib/index.js";
 
 /**
  * Minimal recorder standing in for a Cordis context, plus a fake delivery
@@ -81,6 +81,9 @@ test("apply validates its config defaults", () => {
   assert.deepEqual(parsed.foregroundProcessNames, ["DeepSeek Harness"]);
   assert.equal(parsed.bodyMaxChars, 140);
   assert.equal(parsed.launch, "dsh://open");
+  // `auto` is the published contract: one notification per turn, never the pair
+  // of identical banners that a both-channels default used to produce.
+  assert.equal(parsed.webNotification, "auto");
 });
 
 test("apply registers the manual test tool through the tools service", () => {
@@ -559,19 +562,82 @@ test("a rejected helper install still cannot break the turn path", async () => {
   assert.ok(warns[0].includes("kaboom"));
 });
 
-test("turn settlement broadcasts to active web clients when webHub has clients", async () => {
+/**
+ * Build a harness whose native channel and browser hub are both observable.
+ * @param configOverrides - Config fields to override.
+ * @param webConnected - whether a browser client is connected.
+ * @returns the recorded deliveries, broadcasts, and the emit seam.
+ */
+function dualHarness(configOverrides = {}, webConnected = true) {
   const webBroadcasts = [];
   const fakeWebHub = {
-    hasClients: true,
-    clientCount: 1,
+    hasClients: webConnected,
+    clientCount: webConnected ? 1 : 0,
     broadcast: async (payload) => {
       webBroadcasts.push(payload);
-      return { ok: true, code: 0, detail: "broadcast" };
+      return { ok: true, suppressed: false, code: 0, detail: "broadcast" };
     },
     attach: () => () => {},
     dispose: () => {},
   };
 
+  const delivered = [];
+  const listeners = new Map();
+  const ctx = {
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+    get: () => undefined,
+    effect: (fn) => fn(),
+    on: (event, handler) => listeners.set(event, handler),
+    inject: () => {},
+    tools: { register: () => () => {} },
+  };
+
+  apply(ctx, new Config({ coalesceMs: 0, ...configOverrides }), {
+    showToast: async (p) => {
+      delivered.push(p);
+      return { ok: true, suppressed: false, code: 0 };
+    },
+    webHub: fakeWebHub,
+  });
+
+  return { delivered, webBroadcasts, emitted: (s, e) => listeners.get("session/event")(s, e) };
+}
+
+/** Emit one completed turn through the given emit seam. */
+function completeTurn(emitted, s, text = "Done.") {
+  emitted(s, { type: "turn/start", time: 1000, data: { turn: 1 } });
+  emitted(s, { type: "assistant/message", time: 1001, data: { message: { content: [{ type: "text", text }] } } });
+  emitted(s, { type: "turn/end", time: 2000, data: { turn: 1, reason: { kind: "completed" } } });
+}
+
+test("one settled turn produces exactly one notification when a browser is watching", async () => {
+  // The regression this guards: sending to the native channel *and* broadcasting
+  // to the browser produced two identical banners for a single turn, because a
+  // `dsh web` host on macOS has both channels live and they reach the same user.
+  const h = dualHarness();
+  completeTurn(h.emitted, session(), "Done on web!");
+  await new Promise((r) => setImmediate(r));
+
+  assert.equal(h.delivered.length, 0, "the native channel must stand down");
+  assert.equal(h.webBroadcasts.length, 1, "exactly one browser notification");
+  assert.ok(h.webBroadcasts[0].body.includes("Done on web!"));
+});
+
+test("the desktop shell keeps its native banner instead of duplicating it in-window", async () => {
+  // The desktop application bundles its own web server, so its renderer is also
+  // an SSE client. Without the shell guard that client would receive a web
+  // notification inside the very window the native banner already announced.
+  const webBroadcasts = [];
+  const fakeWebHub = {
+    hasClients: true,
+    clientCount: 1,
+    broadcast: async (p) => {
+      webBroadcasts.push(p);
+      return { ok: true, code: 0 };
+    },
+    attach: () => () => {},
+    dispose: () => {},
+  };
   const delivered = [];
   const listeners = new Map();
   const ctx = {
@@ -589,17 +655,75 @@ test("turn settlement broadcasts to active web clients when webHub has clients",
       return { ok: true, code: 0 };
     },
     webHub: fakeWebHub,
+    desktopShell: true,
   });
 
-  const s = session();
-  listeners.get("session/event")(s, { type: "turn/start", time: 1000, data: { turn: 1 } });
-  listeners.get("session/event")(s, { type: "assistant/message", time: 1001, data: { message: { content: [{ type: "text", text: "Done on web!" }] } } });
-  listeners.get("session/event")(s, { type: "turn/end", time: 2000, data: { turn: 1, reason: { kind: "completed" } } });
-
+  completeTurn((s, e) => listeners.get("session/event")(s, e), session());
   await new Promise((r) => setImmediate(r));
+
   assert.equal(delivered.length, 1);
-  assert.equal(webBroadcasts.length, 1);
-  assert.ok(webBroadcasts[0].body.includes("Done on web!"));
+  assert.equal(webBroadcasts.length, 0);
+});
+
+test("webNotification=always deliberately sends to both audiences", async () => {
+  const h = dualHarness({ webNotification: "always" });
+  completeTurn(h.emitted, session());
+  await new Promise((r) => setImmediate(r));
+
+  assert.equal(h.delivered.length, 1);
+  assert.equal(h.webBroadcasts.length, 1);
+});
+
+test("webNotification=off keeps the browser silent", async () => {
+  const h = dualHarness({ webNotification: "off" });
+  completeTurn(h.emitted, session());
+  await new Promise((r) => setImmediate(r));
+
+  assert.equal(h.delivered.length, 1);
+  assert.equal(h.webBroadcasts.length, 0);
+});
+
+test("with no browser connected the native channel still notifies", async () => {
+  const h = dualHarness({}, false);
+  completeTurn(h.emitted, session());
+  await new Promise((r) => setImmediate(r));
+
+  assert.equal(h.delivered.length, 1);
+  assert.equal(h.webBroadcasts.length, 0);
+});
+
+test("a failed native delivery falls back to a connected browser", async () => {
+  // A denied permission or a helper that will not start must not swallow the
+  // notification while somebody is watching in a browser.
+  const webBroadcasts = [];
+  const listeners = new Map();
+  const ctx = {
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+    get: () => undefined,
+    effect: (fn) => fn(),
+    on: (event, handler) => listeners.set(event, handler),
+    inject: () => {},
+    tools: { register: () => () => {} },
+  };
+
+  apply(ctx, new Config({ coalesceMs: 0 }), {
+    showToast: async () => ({ ok: false, reason: "denied" }),
+    webHub: {
+      hasClients: true,
+      clientCount: 1,
+      broadcast: async (p) => {
+        webBroadcasts.push(p);
+        return { ok: true, suppressed: false, code: 0, detail: "broadcast" };
+      },
+      attach: () => () => {},
+      dispose: () => {},
+    },
+  });
+
+  completeTurn((s, e) => listeners.get("session/event")(s, e), session());
+  await new Promise((r) => setImmediate(r));
+
+  assert.equal(webBroadcasts.length, 1, "the browser must pick up the failed native delivery");
 });
 
 test("the test tool broadcasts to active web clients", async () => {
@@ -688,4 +812,15 @@ test("apply mounts web channel on linux when webServer is available", async () =
   } finally {
     Object.defineProperty(process, "platform", original);
   }
+});
+
+test("isDesktopShell detects the Electron-hosted desktop application", () => {
+  // Verified against the shipped 0.2.0-rc.2 runtime: the desktop host runs under
+  // Electron with ELECTRON_RUN_AS_NODE=1 and still reports versions.electron,
+  // while a plain `dsh web` on stock Node reports undefined. This is what lets
+  // `auto` tell the desktop's own renderer apart from a real browser user.
+  assert.equal(isDesktopShell({ electron: "44.0.0", node: "24.20.0" }), true);
+  assert.equal(isDesktopShell({ node: "24.20.0" }), false);
+  assert.equal(isDesktopShell({}), false);
+  assert.equal(isDesktopShell(undefined), false);
 });
